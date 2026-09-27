@@ -1,0 +1,77 @@
+{
+  "name": "@qed-proof/mcp",
+  "version": "0.1.0",
+  "description": "QED Proof as an MCP server: submit an AI agent's claim, read the verdict QED Proof reached by checking the destination, and verify a signed receipt offline.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "qed-proof-mcp": "dist/stdio.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./http": {
+      "types": "./dist/http.d.ts",
+      "import": "./dist/http.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "homepage": "https://qedproof.site",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "verification",
+    "receipts",
+    "qed-proof"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
+    "ajv": "^8.20.0",
+    "canonicalize": "^5.1.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
+    "@types/node": "^26.6.3",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nuraveda-Labs/qed-proof-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Nuraveda-Labs/qed-proof-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

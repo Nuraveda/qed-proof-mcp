@@ -1,0 +1,35 @@
+# Publishes @qed-proof/mcp to npm when a release tag (mcp-vX.Y.Z) is pushed, with npm trusted publishing (OIDC) and
+# provenance: no token is stored anywhere. The tag must match package.json, and a version already on npm is skipped
+# rather than failed (the first release, 0.1.0, was bootstrapped by hand before trusted publishing could be set up).
+name: publish
+on:
+  push:
+    tags: ["mcp-v*"]
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Tag must match package.json
+        run: |
+          v=$(node -p "require('./package.json').version")
+          test "mcp-v$v" = "${GITHUB_REF_NAME}" || { echo "::error::tag ${GITHUB_REF_NAME} but package.json is $v"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npm run build
+      - name: Publish (skipped if this version is already on npm)
+        run: |
+          if npm view "@qed-proof/mcp@${VERSION}" version >/dev/null 2>&1; then
+            echo "::notice::@qed-proof/mcp@${VERSION} is already published; nothing to do"
+          else
+            npm publish --provenance --access public
+          fi
