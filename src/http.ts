@@ -28,6 +28,33 @@ const MAX_BODY = 256 * 1024;
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
 
+/** The body as text, or null once it passes `limit` bytes. Reads the stream and stops early, so a huge body is never buffered. */
+async function readCapped(req: Request, limit: number): Promise<string | null> {
+  const declared = Number(req.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > limit) return null;
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const all = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    all.set(c, off);
+    off += c.byteLength;
+  }
+  return new TextDecoder().decode(all);
+}
+
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -62,8 +89,8 @@ export async function handleHttp(req: Request, opts: HttpOptions = {}): Promise<
     );
   }
 
-  const text = await req.text();
-  if (text.length > MAX_BODY) return json(413, { error: "request body too large" });
+  const text = await readCapped(req, MAX_BODY);
+  if (text === null) return json(413, { error: "request body too large" });
   let body: unknown;
   try {
     body = JSON.parse(text);

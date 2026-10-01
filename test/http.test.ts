@@ -77,4 +77,29 @@ describe("the hosted handler", () => {
     const r = await handleHttp(new Request(MCP, { method: "POST", headers: { ...HEADERS, Authorization: "Bearer k" }, body: "{not json" }));
     expect(r.status).toBe(400);
   });
+
+  it("refuses an oversized body without buffering it (#142)", async () => {
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(c) {
+        pulled++;
+        c.enqueue(new Uint8Array(64 * 1024).fill(0x20));
+      },
+    });
+    const req = new Request(MCP, {
+      method: "POST",
+      headers: { ...HEADERS, Authorization: "Bearer qed_sk_test" },
+      body: endless,
+      // @ts-expect-error duplex is required for a streamed body in Node's fetch
+      duplex: "half",
+    });
+    const r = await handleHttp(req, { log: () => {} });
+    expect(r.status).toBe(413);
+    expect(pulled).toBeLessThan(10);
+  });
+
+  it("refuses a declared Content-Length over the cap before reading", async () => {
+    const r = await handleHttp(post(init, { "Content-Length": String(10 * 1024 * 1024) }), { log: () => {} });
+    expect(r.status).toBe(413);
+  });
 });

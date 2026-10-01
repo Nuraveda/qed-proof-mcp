@@ -4,7 +4,7 @@
  * bytes (a parsed-and-re-serialised receipt can't be checked for the integer-only rule).
  */
 export const DEFAULT_API = "https://api.qedproof.site";
-export const VERSION = "0.1.0";
+export const VERSION = "0.1.1";
 
 export class ApiError extends Error {
   constructor(
@@ -42,7 +42,10 @@ export class QedApi {
   constructor(opts: { apiKey?: string; baseUrl?: string; fetch?: typeof fetch } = {}) {
     this.base = (opts.baseUrl ?? DEFAULT_API).replace(/\/+$/, "");
     this.key = opts.apiKey?.trim() || undefined;
-    this.fetchImpl = opts.fetch ?? fetch;
+    const f = opts.fetch ?? globalThis.fetch;
+    // Call fetch as a plain function, never as a method of this client: browsers and Workers throw "Illegal invocation"
+    // when fetch's `this` isn't the global (Node doesn't care, so 0.1.0 worked in Node and would fail in a browser).
+    this.fetchImpl = (input, init) => f(input, init);
   }
 
   get hasKey(): boolean {

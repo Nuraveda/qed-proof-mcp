@@ -10,6 +10,8 @@ permissions:
   id-token: write
 jobs:
   publish:
+    # Gated: the `npm` environment requires a maintainer's approval and only accepts mcp-v* tags.
+    environment: npm
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -23,6 +25,8 @@ jobs:
           v=$(node -p "require('./package.json').version")
           test "mcp-v$v" = "${GITHUB_REF_NAME}" || { echo "::error::tag ${GITHUB_REF_NAME} but package.json is $v"; exit 1; }
           echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: npm 11.5.1+ (trusted publishing needs it)
+        run: npm install -g npm@^11.5.1 && npm --version
       - run: npm ci --ignore-scripts
       - run: npm test
       - run: npm run build
