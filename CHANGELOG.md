@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+
+- `verify_receipt` also verifies **change entries** (SPEC §14, an unclaimed change recorded in the log) and takes an optional
+  `pipeline` document to check an entry's `policy` (SPEC §15.2). The result reports `entry_kind` and `policy`.
+- Accepts `poaw/0.1` and `poaw/0.2` receipts.
+
 ## 0.1.1
 
 - The API client calls `fetch` as a plain function, so it works in browsers and Workers (it threw "Illegal invocation"

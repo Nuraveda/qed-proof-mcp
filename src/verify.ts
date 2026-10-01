@@ -9,10 +9,12 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { sha256 } from "@noble/hashes/sha2.js";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import canonicalize from "canonicalize";
-import { RECEIPT_SCHEMA } from "./generated/spec.js";
+import { CHANGE_SCHEMA, PIPELINE_SCHEMA, RECEIPT_SCHEMA } from "./generated/spec.js";
 
-const SIG_DOMAIN = new TextEncoder().encode("POAW-RECEIPT-V0\n");
 const enc = new TextEncoder();
+const SIG_DOMAIN = enc.encode("POAW-RECEIPT-V0\n");
+/** SPEC §5.1: a change entry is signed under its own domain, so it can never verify as a receipt. */
+const CHANGE_SIG_DOMAIN = enc.encode("POAW-CHANGE-V0\n");
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json };
 type Obj = { [k: string]: Json };
@@ -26,10 +28,15 @@ export type CheckReport = {
     integers_only: boolean;
     key: boolean;
     signature: boolean;
-    claim_digest: boolean;
+    /** Absent for a change entry, which has no claim (SPEC §14.1). */
+    claim_digest?: boolean;
     inclusion: boolean | "absent";
     anchor: "absent" | "not_checked_offline";
+    /** Present only when the body carries a `policy` (SPEC §15.2); "not_checked" when no pipeline document was given. */
+    policy?: boolean | "not_checked";
   };
+  /** "change" for a change entry; absent for a receipt. */
+  entry_kind?: "change";
   valid: boolean;
   achieved_trust_level: 0 | 1;
   verdict: string | null;
@@ -98,10 +105,10 @@ export function keyId(publicKey: Uint8Array): string {
   return `ed25519:${b64u(sha256(publicKey))}`;
 }
 
-function verifySignature(publicKey: Uint8Array, body: unknown, sigValue: unknown): boolean {
+function verifySignature(publicKey: Uint8Array, body: unknown, sigValue: unknown, domain: Uint8Array = SIG_DOMAIN): boolean {
   try {
     if (typeof sigValue !== "string") return false;
-    return ed25519.verify(b64uDecode(sigValue), concat(SIG_DOMAIN, jcs(body)), publicKey);
+    return ed25519.verify(b64uDecode(sigValue), concat(domain, jcs(body)), publicKey);
   } catch {
     return false;
   }
@@ -150,15 +157,42 @@ export function rootFromInclusion(index: number, size: number, leaf: Uint8Array,
 // --- the check (SPEC §10) -------------------------------------------------------------------------------------------
 const ajv = new Ajv2020({ allErrors: false, strict: false });
 const validateSchema = ajv.compile(RECEIPT_SCHEMA as object);
+const validateChangeSchema = ajv.compile(CHANGE_SCHEMA as object);
+const validatePipelineSchema = ajv.compile(PIPELINE_SCHEMA as object);
 
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
+/** A parsed value has lost 1.0 vs 1, so a pipeline document is held to "no non-integer number" (reference: has_float). */
+function hasNonInteger(v: unknown): boolean {
+  if (typeof v === "number") return !Number.isInteger(v);
+  if (Array.isArray(v)) return v.some(hasNonInteger);
+  if (isObj(v)) return Object.values(v).some(hasNonInteger);
+  return false;
+}
+
+/** SPEC §15.2: the pipeline document is valid, its id and version are the policy's, and its digest is the policy's. */
+function checkPolicy(policy: Obj, pipeline: unknown): boolean {
+  try {
+    return (
+      isObj(pipeline) &&
+      !hasNonInteger(pipeline) &&
+      Boolean(validatePipelineSchema(pipeline)) &&
+      pipeline.id === policy.pipeline_id &&
+      pipeline.version === policy.pipeline_version &&
+      b64u(sha256(jcs(pipeline))) === policy.digest
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Check a receipt given as its raw JSON text (so the float rule can be applied exactly) against a key set.
- * `valid` is true only if every check that applies passes.
+ * Check a receipt or a change entry given as its raw JSON text (so the float rule can be applied exactly) against a key set.
+ * `valid` is true only if every check that applies passes. If the body carries a `policy`, pass the pipeline document
+ * to check it against (SPEC §15.2); without one the policy check is reported "not_checked".
  */
-export function checkReceipt(receiptJson: string, keyset: KeySet): CheckReport {
+export function checkReceipt(receiptJson: string, keyset: KeySet, pipeline?: unknown): CheckReport {
   const receipt = JSON.parse(receiptJson) as unknown;
   const r: Obj = isObj(receipt) ? receipt : {};
   const body: Obj = isObj(r.body) ? r.body : {};
@@ -166,7 +200,10 @@ export function checkReceipt(receiptJson: string, keyset: KeySet): CheckReport {
 
   const version = str(body.spec_version);
   const specVersion = version.split("/")[0] === "poaw" && (version.split("/").pop() ?? "").split(".")[0] === "0";
-  const schema = Boolean(validateSchema(receipt));
+  // SPEC §14: no entry_kind is a receipt, "change" is a change entry, anything else is not an entry this spec defines.
+  const kind = body.entry_kind;
+  const isChange = kind === "change";
+  const schema = (kind === undefined || isChange) && Boolean((isChange ? validateChangeSchema : validateSchema)(receipt));
   const integersOnly = !hasFloatInText(receiptJson);
 
   const key = (keyset?.keys ?? []).find((k) => k.key_id === sig.key_id);
@@ -187,9 +224,7 @@ export function checkReceipt(receiptJson: string, keyset: KeySet): CheckReport {
   } catch {
     keyOk = false;
   }
-  const signature = Boolean(keyOk && pk && verifySignature(pk, body, sig.value));
-  const claim = body.claim;
-  const digest = isObj(claim) && claim.claim_digest === claimDigest(claim);
+  const signature = Boolean(keyOk && pk && verifySignature(pk, body, sig.value, isChange ? CHANGE_SIG_DOMAIN : SIG_DOMAIN));
 
   let inclusion: boolean | "absent" = "absent";
   const proof = r.proof;
@@ -211,18 +246,31 @@ export function checkReceipt(receiptJson: string, keyset: KeySet): CheckReport {
     integers_only: integersOnly,
     key: keyOk,
     signature,
-    claim_digest: digest,
     inclusion,
     anchor,
   } as CheckReport["checks"];
-  const required = [checks.spec_version, checks.schema, checks.integers_only, checks.key, checks.signature, checks.claim_digest];
-  const valid = required.every((c) => c === true) && (checks.inclusion === true || checks.inclusion === "absent");
+  const required = [checks.spec_version, checks.schema, checks.integers_only, checks.key, checks.signature];
+  if (!isChange) {
+    // a change entry has no claim (SPEC §14.1)
+    const claim = body.claim;
+    checks.claim_digest = isObj(claim) && claim.claim_digest === claimDigest(claim);
+    required.push(checks.claim_digest);
+  }
+  // SPEC §15.2: only present when the body carries a policy; without the pipeline document it is "not_checked".
+  if (body.policy !== undefined && body.policy !== null) {
+    checks.policy = pipeline === undefined || pipeline === null ? "not_checked" : isObj(body.policy) && checkPolicy(body.policy, pipeline);
+  }
+  const valid =
+    required.every((c) => c === true) &&
+    (checks.inclusion === true || checks.inclusion === "absent") &&
+    (checks.policy === undefined || checks.policy === true || checks.policy === "not_checked");
   const verdictObj = isObj(body.verdict) ? body.verdict : {};
   return {
     checks,
+    ...(isChange ? { entry_kind: "change" as const } : {}),
     valid,
     // SPEC §7: the ACHIEVED level. Level 2 needs an anchor verified on-chain, which an offline check never does.
     achieved_trust_level: valid ? 1 : 0,
-    verdict: valid ? str(verdictObj.value) || null : null,
+    verdict: valid && !isChange ? str(verdictObj.value) || null : null,
   };
 }

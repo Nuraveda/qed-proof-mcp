@@ -4,7 +4,7 @@
  * bytes (a parsed-and-re-serialised receipt can't be checked for the integer-only rule).
  */
 export const DEFAULT_API = "https://api.qedproof.site";
-export const VERSION = "0.1.1";
+export const VERSION = "0.2.0";
 
 export class ApiError extends Error {
   constructor(

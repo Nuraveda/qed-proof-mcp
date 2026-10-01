@@ -191,17 +191,23 @@ Any other action string is accepted and decided as "unverifiable" (reason unsupp
   server.registerTool(
     "verify_receipt",
     {
-      title: "Verify a receipt offline",
+      title: "Verify a receipt or change entry offline",
       description:
-        "Checks a receipt independently of QED Proof's servers, as the reference checker in the QED Proof spec does: the JSON Schema, integer-only encoding, the signing key's validity window, the Ed25519 signature, the claim digest and the Merkle log inclusion proof. It does not read the blockchain, so the on-chain anchor is reported as not checked and the achieved trust level is at most 1. Pass receipt_json for a fully offline check, or receipt_id to fetch the receipt first. The public keys come from keys_json or, when omitted, from the issuer's published poaw-keys.json.",
+        "Checks a receipt or a change entry independently of QED Proof's servers, as the reference checker in the QED Proof spec does: the JSON Schema, integer-only encoding, the signing key's validity window, the Ed25519 signature, the claim digest (receipts only; a change entry has no claim) and the Merkle log inclusion proof. A change entry is signed under its own domain and the report carries entry_kind \"change\" with a null verdict. If the body carries a policy, pass the pipeline document to check it (its digest, id and version); without it the policy check is reported as not_checked. It does not read the blockchain, so the on-chain anchor is reported as not checked and the achieved trust level is at most 1. Pass receipt_json (a receipt or a change entry) for a fully offline check, or receipt_id to fetch the receipt first. The public keys come from keys_json or, when omitted, from the issuer's published poaw-keys.json.",
       inputSchema: {
         receipt_json: z.string().max(200_000).optional().describe("The receipt as raw JSON text."),
         receipt_id: z.string().min(1).max(64).optional().describe("A receipt_id to fetch, when receipt_json isn't given."),
         keys_json: z.string().max(200_000).optional().describe("The issuer's poaw-keys.json as raw JSON text."),
+        pipeline: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe(
+            "The pipeline document, to check the receipt's policy against (its id, version and digest). Omit it and the policy check is reported as not_checked.",
+          ),
       },
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
-    async ({ receipt_json, receipt_id, keys_json }) => {
+    async ({ receipt_json, receipt_id, keys_json, pipeline }) => {
       if (!receipt_json && !receipt_id) return fail("Give either receipt_json or receipt_id.");
       let raw = receipt_json;
       const fetched: string[] = [];
@@ -223,15 +229,22 @@ Any other action string is accepted and decided as "unverifiable" (reason unsupp
         }
         let report: ReturnType<typeof checkReceipt>;
         try {
-          report = checkReceipt(raw, keys);
+          report = checkReceipt(raw, keys, pipeline);
         } catch {
           return fail("receipt_json isn't valid JSON.");
         }
         const failed = Object.entries(report.checks)
           .filter(([, v]) => v === false)
           .map(([k]) => k);
+        const isChange = report.entry_kind === "change";
+        const policyNote =
+          report.checks.policy === undefined
+            ? ""
+            : report.checks.policy === "not_checked"
+              ? " The policy was not checked (no pipeline document given)."
+              : " The policy matches the pipeline document.";
         const lead = report.valid
-          ? `Valid at trust level ${report.achieved_trust_level}: signed by a published key, unaltered${report.checks.inclusion === true ? ", and included in the log" : ""}. Verdict: ${report.verdict}. The on-chain anchor was ${report.checks.anchor === "absent" ? "not present" : "not checked (offline check)"}.`
+          ? `Valid${isChange ? " change entry" : ""} at trust level ${report.achieved_trust_level}: signed by a published key, unaltered${report.checks.inclusion === true ? ", and included in the log" : ""}. ${isChange ? "A change entry carries no verdict." : `Verdict: ${report.verdict}.`} The on-chain anchor was ${report.checks.anchor === "absent" ? "not present" : "not checked (offline check)"}.${policyNote}`
           : `Not valid. Failed checks: ${failed.join(", ") || "none individually; see checks"}.`;
         return ok({ ...report, fetched_from_api: fetched }, lead);
       } catch (err) {

@@ -104,8 +104,8 @@ export const PROFILES = [
 
 export const RECEIPT_SCHEMA = {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:poaw:schema:0.1:receipt",
-  "title": "PoAW receipt (poaw/0.1)",
+  "$id": "urn:poaw:schema:0.2:receipt",
+  "title": "PoAW receipt (poaw/0.1 and poaw/0.2)",
   "description": "Structural schema for a Proof of Agent Work receipt. Signature, inclusion and anchor checks are defined in SPEC.md and are not expressible in JSON Schema.",
   "type": "object",
   "required": [
@@ -144,6 +144,29 @@ export const RECEIPT_SCHEMA = {
     "action": {
       "type": "string",
       "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+){2}$"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "pipeline_id",
+        "pipeline_version",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pipeline_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+        },
+        "pipeline_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      }
     },
     "verdictValue": {
       "enum": [
@@ -184,7 +207,10 @@ export const RECEIPT_SCHEMA = {
       ],
       "properties": {
         "spec_version": {
-          "const": "poaw/0.1"
+          "enum": [
+            "poaw/0.1",
+            "poaw/0.2"
+          ]
         },
         "receipt_id": {
           "type": "string",
@@ -372,31 +398,204 @@ export const RECEIPT_SCHEMA = {
         },
         "supersedes": {
           "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
         }
       },
-      "if": {
-        "properties": {
-          "trust_level": {
-            "minimum": 3
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "attestation"
-        ],
-        "properties": {
-          "observation": {
+      "allOf": [
+        {
+          "if": {
             "properties": {
-              "verifier": {
-                "required": [
-                  "id",
-                  "version",
-                  "code_hash"
-                ]
+              "trust_level": {
+                "minimum": 3
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "attestation"
+            ],
+            "properties": {
+              "observation": {
+                "properties": {
+                  "verifier": {
+                    "required": [
+                      "id",
+                      "version",
+                      "code_hash"
+                    ]
+                  }
+                }
               }
             }
           }
+        },
+        {
+          "if": {
+            "required": [
+              "policy"
+            ]
+          },
+          "then": {
+            "properties": {
+              "spec_version": {
+                "const": "poaw/0.2"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "alg",
+        "key_id",
+        "value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "alg": {
+          "const": "Ed25519"
+        },
+        "key_id": {
+          "$ref": "#/$defs/keyId"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      }
+    },
+    "proof": {
+      "type": "object",
+      "required": [
+        "log_id",
+        "leaf_index",
+        "tree_size",
+        "root_hash",
+        "inclusion"
+      ],
+      "properties": {
+        "log_id": {
+          "$ref": "#/$defs/b64url"
+        },
+        "leaf_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tree_size": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "root_hash": {
+          "$ref": "#/$defs/b64url"
+        },
+        "inclusion": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/b64url"
+          }
+        },
+        "anchor": {
+          "type": "object",
+          "required": [
+            "chain",
+            "scheme",
+            "uid",
+            "tx_hash",
+            "tree_size"
+          ],
+          "properties": {
+            "chain": {
+              "type": "string"
+            },
+            "scheme": {
+              "const": "eas"
+            },
+            "uid": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{64}$"
+            },
+            "tx_hash": {
+              "type": "string",
+              "pattern": "^0x[0-9a-fA-F]{64}$"
+            },
+            "tree_size": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
+
+export const CHANGE_SCHEMA = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:poaw:schema:0.2:change",
+  "title": "PoAW change entry (poaw/0.2)",
+  "description": "Structural schema for a change entry: a signed log entry for an in-scope change at a destination that no claim explained (SPEC.md §14). Signature, inclusion and anchor checks are defined in SPEC.md and are not expressible in JSON Schema.",
+  "type": "object",
+  "required": [
+    "body",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "$ref": "#/$defs/body"
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    },
+    "proof": {
+      "$ref": "#/$defs/proof"
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,3})?Z$"
+    },
+    "b64url": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$"
+    },
+    "keyId": {
+      "type": "string",
+      "pattern": "^ed25519:[A-Za-z0-9_-]{43}$"
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[A-Za-z0-9_-]{43}$"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+){2}$"
+    },
+    "policy": {
+      "type": "object",
+      "required": [
+        "pipeline_id",
+        "pipeline_version",
+        "digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "pipeline_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+        },
+        "pipeline_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
         }
       }
     },
@@ -482,6 +681,751 @@ export const RECEIPT_SCHEMA = {
           }
         }
       }
+    },
+    "body": {
+      "type": "object",
+      "required": [
+        "spec_version",
+        "entry_kind",
+        "change_id",
+        "issued_at",
+        "issuer",
+        "connector",
+        "event",
+        "target",
+        "fingerprint",
+        "seen_at",
+        "facts",
+        "watcher",
+        "policy",
+        "trust_level"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "claim"
+            ]
+          },
+          {
+            "required": [
+              "observation"
+            ]
+          },
+          {
+            "required": [
+              "verdict"
+            ]
+          }
+        ]
+      },
+      "properties": {
+        "spec_version": {
+          "const": "poaw/0.2"
+        },
+        "entry_kind": {
+          "const": "change"
+        },
+        "change_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "issued_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "issuer": {
+          "type": "object",
+          "required": [
+            "key_id"
+          ],
+          "properties": {
+            "key_id": {
+              "$ref": "#/$defs/keyId"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        },
+        "connector": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "event": {
+          "$ref": "#/$defs/action"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "fingerprint": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "seen_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "occurred_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "facts": {
+          "type": "object"
+        },
+        "watcher": {
+          "type": "object",
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            },
+            "code_hash": {
+              "$ref": "#/$defs/fingerprint"
+            }
+          }
+        },
+        "policy": {
+          "$ref": "#/$defs/policy"
+        },
+        "trust_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "attestation": {
+          "type": "object",
+          "required": [
+            "type",
+            "document"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "document": {
+              "$ref": "#/$defs/b64url"
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "trust_level": {
+            "minimum": 3
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "attestation"
+        ],
+        "properties": {
+          "watcher": {
+            "required": [
+              "id",
+              "version",
+              "code_hash"
+            ]
+          }
+        }
+      }
+    }
+  }
+} as const;
+
+export const PIPELINE_SCHEMA = {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:poaw:schema:0.2:pipeline",
+  "title": "QED pipeline (pipeline/1)",
+  "description": "A pipeline: connector x trigger (claim | watch) x filter x check x outcomes (SPEC.md §15). A pipeline is data. There is no operand that can hold a claim value: every condition compares a field of the destination's own event (event.*) or of the facts the verifier profile recorded (observed.*) with a literal. Integers only (SPEC.md §3), because the document is hashed with JCS.",
+  "type": "object",
+  "required": [
+    "schema",
+    "id",
+    "version",
+    "name",
+    "connector",
+    "trigger",
+    "check",
+    "outcomes"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "pipeline/1"
+    },
+    "id": {
+      "$ref": "#/$defs/pipelineId"
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000000
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "connector": {
+      "type": "object",
+      "required": [
+        "provider",
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,31}$"
+        },
+        "target": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/target"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/target"
+              },
+              "minItems": 1,
+              "maxItems": 50,
+              "uniqueItems": true
+            }
+          ]
+        }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "required": [
+        "on"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "on": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "claim",
+              "watch"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "watch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "grace_seconds": {
+              "type": "integer",
+              "minimum": 60,
+              "maximum": 86400
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "on": {
+            "not": {
+              "contains": {
+                "const": "watch"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "not": {
+          "required": [
+            "watch"
+          ]
+        }
+      }
+    },
+    "filter": {
+      "$ref": "#/$defs/eventExpr"
+    },
+    "check": {
+      "type": "object",
+      "required": [
+        "profile"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "type": "object",
+          "required": [
+            "id",
+            "version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/action"
+            },
+            "version": {
+              "type": "string",
+              "pattern": "^\\d+$"
+            }
+          }
+        },
+        "narrow": {
+          "$ref": "#/$defs/observedExpr"
+        },
+        "tolerance_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "deadline_seconds": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 604800
+        }
+      }
+    },
+    "outcomes": {
+      "type": "object",
+      "required": [
+        "receipt"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "enum": [
+            "always"
+          ]
+        },
+        "alerts": {
+          "type": "array",
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "required": [
+              "on",
+              "channel",
+              "to"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "on": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "verified",
+                    "late",
+                    "mismatch",
+                    "failed",
+                    "unverifiable",
+                    "unclaimed_change"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "channel": {
+                "enum": [
+                  "email",
+                  "webhook",
+                  "discord"
+                ]
+              },
+              "to": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320,
+                "description": "email: an address. discord, webhook: the ID of a workspace alert channel. The channel holds the secret URL; the pipeline document, which members can read and which is hashed forever, never does."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "channel": {
+                      "const": "email"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "to": {
+                      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                    }
+                  }
+                }
+              },
+              {
+                "if": {
+                  "properties": {
+                    "channel": {
+                      "enum": [
+                        "discord",
+                        "webhook"
+                      ]
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "to": {
+                      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pipelineId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(\\.[a-z0-9_]+){2}$"
+    },
+    "target": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "literal": {
+      "description": "A literal operand. Never an object, so a claim reference or an expression cannot be written here. Integers only.",
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 512
+        },
+        {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "operator": {
+      "enum": [
+        "eq",
+        "neq",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "in",
+        "not_in",
+        "exists",
+        "starts_with"
+      ]
+    },
+    "eventCondition": {
+      "type": "object",
+      "required": [
+        "field",
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^event(\\.[a-z_][a-z0-9_]{0,31}){1,4}$"
+        },
+        "op": {
+          "$ref": "#/$defs/operator"
+        },
+        "value": {
+          "$ref": "#/$defs/literal"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/operandRules"
+        }
+      ]
+    },
+    "observedCondition": {
+      "type": "object",
+      "required": [
+        "field",
+        "op"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "type": "string",
+          "pattern": "^observed(\\.[a-z_][a-z0-9_]{0,31}){1,4}$"
+        },
+        "op": {
+          "$ref": "#/$defs/operator"
+        },
+        "value": {
+          "$ref": "#/$defs/literal"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/operandRules"
+        }
+      ]
+    },
+    "operandRules": {
+      "description": "Which operator takes which operand: exists takes none; ordering takes an integer; in/not_in take a list; starts_with takes a string; eq/neq take a scalar.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "exists"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "value"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "gt",
+                  "gte",
+                  "lt",
+                  "lte"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "in",
+                  "not_in"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "starts_with"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "enum": [
+                  "eq",
+                  "neq"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "not": {
+                  "type": "array"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "eventExpr": {
+      "description": "A boolean expression over the destination's event fields.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/eventCondition"
+        },
+        {
+          "type": "object",
+          "required": [
+            "all"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/eventExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/eventExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "not"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/eventExpr"
+            }
+          }
+        }
+      ]
+    },
+    "observedExpr": {
+      "description": "A boolean expression over the facts the verifier profile recorded. It can only narrow the profile's verdict.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/observedCondition"
+        },
+        {
+          "type": "object",
+          "required": [
+            "all"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "all": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/observedExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "items": {
+                "$ref": "#/$defs/observedExpr"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "not"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/observedExpr"
+            }
+          }
+        }
+      ]
     }
   }
 } as const;
