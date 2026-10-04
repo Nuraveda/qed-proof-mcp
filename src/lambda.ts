@@ -13,7 +13,13 @@ type UrlEvent = {
   requestContext: { http: { method: string } };
 };
 
+const oauth =
+  process.env.QED_OAUTH_ISSUER && process.env.QED_OAUTH_MCP_URL
+    ? { issuer: process.env.QED_OAUTH_ISSUER.replace(/\/+$/, ""), resourceUrl: process.env.QED_OAUTH_MCP_URL }
+    : undefined;
+
 const opts = {
+  oauth,
   apiBaseUrl: process.env.QED_API_URL,
   allowedOrigins: (process.env.QED_MCP_ALLOWED_ORIGINS ?? "")
     .split(",")

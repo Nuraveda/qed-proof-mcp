@@ -13,6 +13,8 @@ import { CHANGE_SCHEMA, PIPELINE_SCHEMA, RECEIPT_SCHEMA } from "./generated/spec
 
 const enc = new TextEncoder();
 const SIG_DOMAIN = enc.encode("POAW-RECEIPT-V0\n");
+/** SPEC §8.5: a signed tree head is signed under its own domain, so it can never verify as a receipt or a change entry. */
+const TREE_HEAD_SIG_DOMAIN = enc.encode("POAW-TREE-HEAD-V0\n");
 /** SPEC §5.1: a change entry is signed under its own domain, so it can never verify as a receipt. */
 const CHANGE_SIG_DOMAIN = enc.encode("POAW-CHANGE-V0\n");
 
@@ -273,4 +275,52 @@ export function checkReceipt(receiptJson: string, keyset: KeySet, pipeline?: unk
     achieved_trust_level: valid ? 1 : 0,
     verdict: valid && !isChange ? str(verdictObj.value) || null : null,
   };
+}
+
+export type TreeHeadReport = {
+  valid: boolean;
+  checks: { shape: boolean; key: boolean; signature: boolean };
+};
+
+const HEAD_FIELDS = ["issued_at", "log_id", "root_hash", "tree_size"];
+
+/**
+ * SPEC §8.5 (port of verify_tree_head in oss/spec/tools/check.py): exactly the four body fields with a non-negative
+ * integer tree_size, a key valid at `issued_at`, and a signature under the tree-head domain. Accepts a bare
+ * `{body, signature}` or the `GET /v1/log/head` response. Any doubt is a failing check.
+ */
+export function verifyTreeHead(head: unknown, keyset: KeySet): TreeHeadReport {
+  const doc = isObj(head) && isObj(head.tree_head) ? head.tree_head : head;
+  const body: Obj | undefined = isObj(doc) && isObj(doc.body) ? doc.body : undefined;
+  const sig: Obj = isObj(doc) && isObj(doc.signature) ? doc.signature : {};
+  const shape =
+    body !== undefined &&
+    Object.keys(body).sort().join(",") === HEAD_FIELDS.join(",") &&
+    Number.isInteger(body.tree_size) &&
+    (body.tree_size as number) >= 0 &&
+    typeof body.log_id === "string" &&
+    typeof body.root_hash === "string" &&
+    typeof body.issued_at === "string" &&
+    sig.alg === "Ed25519";
+  let keyOk = false;
+  let sigOk = false;
+  if (shape && body) {
+    const issued = body.issued_at as string;
+    const key = (keyset?.keys ?? []).find((k) => k.key_id === sig.key_id);
+    try {
+      const pk = key ? b64uDecode(key.public_key) : null;
+      keyOk = Boolean(
+        key &&
+          pk &&
+          keyId(pk) === key.key_id &&
+          key.valid_from <= issued &&
+          (key.revoked_at === null || key.revoked_at === undefined || issued < key.revoked_at),
+      );
+      sigOk = Boolean(keyOk && pk && verifySignature(pk, body, sig.value, TREE_HEAD_SIG_DOMAIN));
+    } catch {
+      keyOk = false;
+      sigOk = false;
+    }
+  }
+  return { valid: shape && keyOk && sigOk, checks: { shape, key: keyOk, signature: sigOk } };
 }

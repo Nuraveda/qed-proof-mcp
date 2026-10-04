@@ -14,6 +14,7 @@ and verify them offline, with no code.
 | `get_verdict` | A claim's state, verdict (`verified`, `late`, `mismatch`, `failed`, `unverifiable`), what it means, and the `receipt_id`. |
 | `get_receipt` | The full signed receipt, with a shareable link. Receipts are public. |
 | `verify_receipt` | Checks a receipt **offline**: schema, integer-only encoding, key validity, Ed25519 signature, claim digest, and Merkle inclusion. It doesn't read the chain, so the anchor is reported as not checked and the achieved trust level is at most 1. |
+| `get_log_head` | The public Merkle log's signed tree head (size, root, key id, issue time) and latest on-chain anchor, with whether the signature verifies against the published keys. Needs no API key. |
 | `list_claims` | Recent claims in your workspace, with filters. |
 | `list_connections` | Destinations your workspace has connected read-only, and whether a verifier is live for each. |
 

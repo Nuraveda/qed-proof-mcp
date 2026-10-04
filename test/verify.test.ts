@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkReceipt, hasFloatInText, type KeySet } from "../src/verify.js";
+import { checkReceipt, hasFloatInText, type KeySet, verifyTreeHead } from "../src/verify.js";
 
 const DIR = join(import.meta.dirname, "vectors");
 const manifest = JSON.parse(readFileSync(join(DIR, "manifest.json"), "utf8")) as {
@@ -80,4 +80,20 @@ describe("the cross-language float case the spec vectors don't cover", () => {
     expect(report.valid).toBe(false);
     expect(report.achieved_trust_level).toBe(0);
   });
+});
+
+describe("verifyTreeHead agrees with the reference checker on every tree-head vector (SPEC §8.5)", () => {
+  const heads = (
+    JSON.parse(readFileSync(join(DIR, "manifest.json"), "utf8")) as {
+      tree_head_vectors: { file: string; description: string; expected: { valid: boolean } }[];
+    }
+  ).tree_head_vectors;
+  it("has vectors", () => expect(heads.length).toBeGreaterThan(0));
+  for (const v of heads) {
+    it(`${v.file}: ${v.description}`, () => {
+      const head = JSON.parse(readFileSync(join(DIR, v.file), "utf8"));
+      expect(verifyTreeHead(head, keyset).valid).toBe(v.expected.valid);
+      expect(verifyTreeHead({ tree_head: head, anchor: null }, keyset).valid).toBe(v.expected.valid);
+    });
+  }
 });

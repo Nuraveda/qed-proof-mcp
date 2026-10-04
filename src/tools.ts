@@ -1,5 +1,5 @@
 /**
- * The six tools. Anthropic Directory rules that shape every line here:
+ * The seven tools. Anthropic Directory rules that shape every line here:
  * - every tool has title + readOnlyHint + destructiveHint; reads and writes are separate tools;
  * - descriptions state what a tool does, returns and can't do, as facts. They never tell the model how to behave;
  * - no description implies a verifier that doesn't exist: the action list is generated from oss/spec/profiles.
@@ -10,7 +10,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ApiError, type QedApi, VERSION } from "./api.js";
 import { PROFILES } from "./generated/spec.js";
-import { checkReceipt, type KeySet } from "./verify.js";
+import { checkReceipt, type KeySet, verifyTreeHead } from "./verify.js";
 
 export const SITE = "https://qedproof.site";
 const receiptUrl = (id: string) => `${SITE}/r/${id}/`;
@@ -88,7 +88,7 @@ export function createServer({ api, defaultAgentId }: ServerOptions): McpServer 
     { name: "qed-proof", version: VERSION, title: "QED Proof" },
     {
       instructions:
-        "QED Proof independently verifies an AI agent's claimed work by reading the destination system itself (never the agent's own report) and issues a signed receipt. Flow: submit_claim returns a claim_id; get_verdict returns the verdict and receipt_id once decided; get_receipt returns the receipt; verify_receipt checks a receipt's signature and log inclusion offline.",
+        "QED Proof independently verifies an AI agent's claimed work by reading the destination system itself (never the agent's own report) and issues a signed receipt. Flow: submit_claim returns a claim_id; get_verdict returns the verdict and receipt_id once decided; get_receipt returns the receipt; verify_receipt checks a receipt's signature and log inclusion offline; get_log_head returns the public log's signed tree head.",
     },
   );
 
@@ -249,6 +249,42 @@ Any other action string is accepted and decided as "unverifiable" (reason unsupp
         return ok({ ...report, fetched_from_api: fetched }, lead);
       } catch (err) {
         return explain(err, receipt_id ? `Receipt ${receipt_id}` : "The key set");
+      }
+    },
+  );
+
+  server.registerTool(
+    "get_log_head",
+    {
+      title: "Get the public log's signed tree head",
+      description:
+        "Returns the signed tree head of QED Proof's public Merkle log: the log id, the number of entries (tree_size), the root hash, when it was issued, and the Ed25519 signature, plus the latest on-chain anchor (chain, transaction hash, tree size and block) when one has landed. The signature is checked against the issuer's published poaw-keys.json and the result says whether it verifies. Needs no API key and reads only public data. It checks the head's signature, not that the head extends an earlier one; a consistency proof does that.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async () => {
+      try {
+        const raw = JSON.parse(await api.getLogHead()) as { tree_head?: { body?: Record<string, unknown> }; anchor?: unknown };
+        const keys = JSON.parse(await api.getKeys()) as KeySet;
+        const verification = verifyTreeHead(raw, keys);
+        const size = raw.tree_head?.body?.tree_size;
+        const lead = verification.valid
+          ? `The log has ${size} entries and the head's signature verifies against the published keys.`
+          : `The head's signature does not verify (${Object.entries(verification.checks)
+              .filter(([, v]) => !v)
+              .map(([k]) => k)
+              .join(", ")} failed). The head can't be trusted.`;
+        return ok(
+          {
+            tree_head: raw.tree_head ?? null,
+            anchor: raw.anchor ?? null,
+            signature_valid: verification.valid,
+            checks: verification.checks,
+          },
+          lead,
+        );
+      } catch (err) {
+        return explain(err, "The log head");
       }
     },
   );

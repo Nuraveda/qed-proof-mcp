@@ -3,10 +3,10 @@ import { PROFILES } from "../src/generated/spec.js";
 import { connect, fakeApi, text, vector } from "./helpers.js";
 
 const KEY = "qed_sk_test_0000000000000000";
-const EXPECTED = ["get_receipt", "get_verdict", "list_claims", "list_connections", "submit_claim", "verify_receipt"];
+const EXPECTED = ["get_log_head", "get_receipt", "get_verdict", "list_claims", "list_connections", "submit_claim", "verify_receipt"];
 
 describe("tools/list", () => {
-  it("exposes exactly the six tools", async () => {
+  it("exposes exactly the seven tools", async () => {
     const c = await connect({ apiKey: KEY, fetch: fakeApi({}).fetch });
     const { tools } = await c.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(EXPECTED);
@@ -165,5 +165,59 @@ describe("list tools before their API routes are deployed", () => {
     expect(r.isError).toBeFalsy();
     const q = new URL(api.calls[0].url).searchParams;
     expect(Object.fromEntries(q)).toEqual({ limit: "5", verdict: "failed", state: "decided" });
+  });
+});
+
+describe("get_log_head", () => {
+  const KEYS = vector("keys.json");
+  const head = (file: string) => ({
+    tree_head: JSON.parse(vector(file)),
+    anchor: { chain: "base-sepolia", tx_hash: "0xabc", tree_size: 7 },
+  });
+
+  it("returns the head and anchor with a verified signature; works without an API key", async () => {
+    const api = fakeApi({
+      "GET /v1/log/head": () => [200, head("036-tree-head-valid.json")],
+      "GET /.well-known/poaw-keys.json": () => [200, KEYS],
+    });
+    const c = await connect({ fetch: api.fetch });
+    const r = await c.callTool({ name: "get_log_head", arguments: {} });
+    expect(r.isError).toBeFalsy();
+    const out = r.structuredContent as {
+      signature_valid: boolean;
+      tree_head: { body: { tree_size: number } };
+      anchor: { tx_hash: string };
+    };
+    expect(out.signature_valid).toBe(true);
+    expect(out.tree_head.body.tree_size).toBe(7);
+    expect(out.anchor.tx_hash).toBe("0xabc");
+    expect(text(r)).toMatch(/7 entries.*verifies/s);
+    expect(api.calls.every((x) => x.auth === null)).toBe(true);
+  });
+
+  it.each(["037-tree-head-tampered.json", "038-tree-head-signed-as-receipt.json", "039-tree-head-extra-field.json"])(
+    "reports an invalid signature for %s",
+    async (file) => {
+      const api = fakeApi({
+        "GET /v1/log/head": () => [200, head(file)],
+        "GET /.well-known/poaw-keys.json": () => [200, KEYS],
+      });
+      const c = await connect({ fetch: api.fetch });
+      const r = await c.callTool({ name: "get_log_head", arguments: {} });
+      expect((r.structuredContent as { signature_valid: boolean }).signature_valid).toBe(false);
+      expect(text(r)).toMatch(/does not verify/);
+    },
+  );
+
+  it("handles a null anchor and an API that doesn't have the endpoint yet", async () => {
+    const ok = fakeApi({
+      "GET /v1/log/head": () => [200, { tree_head: JSON.parse(vector("036-tree-head-valid.json")), anchor: null }],
+      "GET /.well-known/poaw-keys.json": () => [200, KEYS],
+    });
+    const r = await (await connect({ fetch: ok.fetch })).callTool({ name: "get_log_head", arguments: {} });
+    expect((r.structuredContent as { anchor: unknown }).anchor).toBeNull();
+    const missing = await (await connect({ fetch: fakeApi({}).fetch })).callTool({ name: "get_log_head", arguments: {} });
+    expect(missing.isError).toBe(true);
+    expect(text(missing)).toMatch(/The log head was not found \(404\)/);
   });
 });

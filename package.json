@@ -1,6 +1,6 @@
 {
   "name": "@qed-proof/mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "QED Proof as an MCP server: submit an AI agent's claim, read the verdict QED Proof reached by checking the destination, and verify a signed receipt offline.",
   "license": "Apache-2.0",
   "type": "module",
