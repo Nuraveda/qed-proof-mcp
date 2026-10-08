@@ -122,6 +122,9 @@ export const RECEIPT_SCHEMA = {
     },
     "proof": {
       "$ref": "#/$defs/proof"
+    },
+    "attestation_document": {
+      "$ref": "#/$defs/b64url"
     }
   },
   "$defs": {
@@ -330,7 +333,15 @@ export const RECEIPT_SCHEMA = {
                   "pattern": "^\\d+$"
                 },
                 "code_hash": {
-                  "$ref": "#/$defs/fingerprint"
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/fingerprint"
+                    },
+                    {
+                      "type": "string",
+                      "pattern": "^sha384:[0-9a-f]{96}$"
+                    }
+                  ]
                 }
               }
             },
@@ -385,14 +396,15 @@ export const RECEIPT_SCHEMA = {
           "type": "object",
           "required": [
             "type",
-            "document"
+            "document_sha256"
           ],
           "properties": {
             "type": {
               "type": "string"
             },
-            "document": {
-              "$ref": "#/$defs/b64url"
+            "document_sha256": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
             }
           }
         },

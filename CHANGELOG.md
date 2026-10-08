@@ -6,6 +6,31 @@ All notable changes to `@qed-proof/mcp` are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-08
+
+### Changed
+
+- The bundled copy of the receipt schema matches the current spec: a trust-level-3 receipt's attestation carries
+  `document_sha256`, and the attestation document travels beside the signed body instead of inside it. This server does
+  not verify attestations itself; `verify_receipt` gives the same result as 0.3.0 on every receipt test vector.
+
+### Added
+
+- The hosted Lambda entry (`lambda.ts`, not part of the npm package) can report errors to Sentry when `QED_SENTRY_DSN`
+  is set. Off by default; the stdio and HTTP servers in the package send nothing. Errors only: no PII, headers outside
+  a short allowlist, bodies or query strings.
+
+### Fixed
+
+- The Lambda bundle's `createRequire` banner is aliased, so a bundled dependency importing the same name can't make the
+  bundle fail to load; the build now smoke-loads the bundle with reporting off and on.
+
+### Security
+
+- `@modelcontextprotocol/sdk` now requires `^1.32.1`, so installs can't resolve a version affected by
+  [GHSA-6qxp-vccf-f47h](https://github.com/advisories/GHSA-6qxp-vccf-f47h). The advisory is in the SDK's OAuth client,
+  which this server does not use.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added
@@ -50,7 +75,8 @@ All notable changes to `@qed-proof/mcp` are documented here. The format follows
 - Local stdio server (`npx @qed-proof/mcp`) and a stateless Streamable HTTP handler for the hosted server.
 - `verify_receipt` agrees with the spec's reference checker on every published test vector.
 
-[Unreleased]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.3.0...HEAD
+[Unreleased]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.3.1...HEAD
+[0.3.1]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.3.0...mcp-v0.3.1
 [0.3.0]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.2.0...mcp-v0.3.0
 [0.2.0]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.1.1...mcp-v0.2.0
 [0.1.1]: https://github.com/Nuraveda/qed-proof-mcp/compare/mcp-v0.1.0...mcp-v0.1.1

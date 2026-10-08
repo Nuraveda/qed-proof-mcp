@@ -21,6 +21,9 @@ export default defineConfig([
     splitting: false,
     clean: true,
     outExtension: () => ({ js: ".mjs" }),
-    banner: { js: "import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" },
+    // Aliased: bundled deps (Sentry) import `createRequire` themselves; a second plain import is a SyntaxError at load.
+    banner: {
+      js: "import { createRequire as __qedCreateRequire } from 'node:module'; const require = __qedCreateRequire(import.meta.url);",
+    },
   },
 ]);
